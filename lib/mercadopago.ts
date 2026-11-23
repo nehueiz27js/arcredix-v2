@@ -7,6 +7,13 @@ type TokenRow = {
   mp_token_expires_at: string | Date | null;
 };
 
+type RefreshResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  error?: string;
+};
+
 export async function getMercadoPagoAccessToken(commerceId: string): Promise<string | null> {
   const rows = await sql`select mp_access_token_enc, mp_refresh_token_enc, mp_token_expires_at
     from commerces where id = ${commerceId}`;
@@ -21,20 +28,20 @@ export async function getMercadoPagoAccessToken(commerceId: string): Promise<str
   const clientSecret = process.env.MP_CLIENT_SECRET;
   if (!clientId || !clientSecret) throw new Error("Faltan las credenciales OAuth de Mercado Pago.");
 
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: decrypt(row.mp_refresh_token_enc as string),
-  });
   const response = await fetch("https://api.mercadopago.com/oauth/token", {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: decrypt(row.mp_refresh_token_enc as string),
+    }),
     cache: "no-store",
   });
-  const token = await response.json();
+  const token = (await response.json()) as RefreshResponse;
   if (!response.ok || !token.access_token || !token.refresh_token) {
+    console.error("Mercado Pago token refresh failed", response.status, token.error ?? "unknown");
     throw new Error("Mercado Pago no pudo renovar la autorización. Es necesario volver a vincular la cuenta.");
   }
 
@@ -45,5 +52,5 @@ export async function getMercadoPagoAccessToken(commerceId: string): Promise<str
     mp_token_expires_at = ${nextExpiry.toISOString()}
     where id = ${commerceId}`;
 
-  return token.access_token as string;
+  return token.access_token;
 }
