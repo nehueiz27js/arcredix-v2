@@ -41,19 +41,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const body = new URLSearchParams({
-      grant_type: "authorization_code",
-      client_id: clientId,
-      client_secret: clientSecret,
-      code,
-      redirect_uri: REDIRECT_URI,
-      code_verifier: decrypt(saved.code_verifier_enc as string),
-    });
-
+    // Mercado Pago documents this endpoint with an application/json request body.
     const response = await fetch("https://api.mercadopago.com/oauth/token", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        grant_type: "authorization_code",
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: REDIRECT_URI,
+        code_verifier: decrypt(saved.code_verifier_enc as string),
+      }),
       cache: "no-store",
     });
     const token = (await response.json()) as MpTokenResponse;
