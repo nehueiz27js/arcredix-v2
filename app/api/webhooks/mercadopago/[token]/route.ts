@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { decrypt } from "@/lib/crypto";
+import { getMercadoPagoAccessToken } from "@/lib/mercadopago";
 import { insertPayment } from "@/lib/ingest";
 import { loadCommerce } from "@/lib/session";
 
@@ -12,7 +12,7 @@ export async function GET() {
 
 export async function POST(req: Request, { params }: Ctx) {
   const { token } = await params;
-  const rows = await sql`select id, mp_access_token_enc from commerces where webhook_token = ${token}`;
+  const rows = await sql`select id from commerces where webhook_token = ${token}`;
   const row = rows[0];
   if (!row) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
 
@@ -29,11 +29,14 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!topic.startsWith("payment") || !/^\d+$/.test(paymentId)) return NextResponse.json({ ignored: true });
 
   const commerce = await loadCommerce(row.id as string);
-  if (!commerce || commerce.blocked || !row.mp_access_token_enc) return NextResponse.json({ ignored: "bloqueado o sin token" });
+  if (!commerce || commerce.blocked || false) return NextResponse.json({ ignored: "bloqueado o sin token" });
 
   // Nunca confiamos en el cuerpo de la notificación: consultamos el pago real a Mercado Pago
+  const accessToken = await getMercadoPagoAccessToken(commerce.id);
+  if (!accessToken) return NextResponse.json({ ignored: "sin autorización de Mercado Pago" });
   const r = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-    headers: { Authorization: `Bearer ${decrypt(row.mp_access_token_enc as string)}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
   });
   if (!r.ok) return NextResponse.json({ error: "No pude consultar el pago" }, { status: 502 }); // MP reintenta
 
