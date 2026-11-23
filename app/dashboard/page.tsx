@@ -130,12 +130,13 @@ async function DashboardContent() {
             <p className="font-medium text-white">1) Mercado Pago {c.hasMp && <span className="text-[#00D6A0]">· vinculado</span>}</p>
             <p>Webhook (Notificaciones &gt; Webhooks, evento &quot;Pagos&quot;):</p>
             <p className="break-all rounded bg-black/40 p-2 font-mono text-xs">{base}/api/webhooks/mercadopago/{c.webhookToken}</p>
+            <a href="/api/integrations/mercadopago/connect" className="mt-2 inline-flex rounded-lg bg-[#009ee3] px-4 py-2 font-semibold text-white hover:opacity-90">Vincular cuenta con Mercado Pago</a>
             {c.hasMp ? (
               <form action={removeMpToken} className="mt-2"><button className="text-red-300 underline">Desvincular Mercado Pago</button></form>
             ) : (
-              <ActionForm action={saveMpToken} submit="Vincular" className="mt-2">
+              <details className="mt-3"><summary className="cursor-pointer text-xs text-white/50">Vinculación manual (método anterior)</summary><ActionForm action={saveMpToken} submit="Vincular con Access Token" className="mt-2">
                 <input name="token" required placeholder="Access Token de producción" className={inputCls + " min-w-72"} />
-              </ActionForm>
+              </ActionForm></details>
             )}
           </div>
           <div>
