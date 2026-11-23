@@ -25,6 +25,7 @@ export async function GET() {
   const state = randomBytes(32).toString("base64url");
   const stateHash = createHash("sha256").update(state).digest("hex");
 
+  await sql`delete from mp_oauth_states where expires_at <= now()`;
   await sql`insert into mp_oauth_states (state_hash, commerce_id, code_verifier_enc, expires_at)
     values (${stateHash}, ${commerce.id}, ${encrypt(verifier)}, now() + interval '10 minutes')`;
 
