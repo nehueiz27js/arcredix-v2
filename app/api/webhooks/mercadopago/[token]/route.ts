@@ -29,7 +29,7 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!topic.startsWith("payment") || !/^\d+$/.test(paymentId)) return NextResponse.json({ ignored: true });
 
   const commerce = await loadCommerce(row.id as string);
-  if (!commerce || commerce.blocked || false) return NextResponse.json({ ignored: "bloqueado o sin token" });
+  if (!commerce || commerce.blocked) return NextResponse.json({ ignored: "bloqueado o sin token" });
 
   // Nunca confiamos en el cuerpo de la notificación: consultamos el pago real a Mercado Pago
   const accessToken = await getMercadoPagoAccessToken(commerce.id);
