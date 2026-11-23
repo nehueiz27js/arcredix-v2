@@ -91,7 +91,7 @@ export async function saveMpToken(_p: Result, fd: FormData): Promise<Result> {
 
 export async function removeMpToken(): Promise<void> {
   const c = await requireOwner();
-  await sql`update commerces set mp_access_token_enc = null where id = ${c.id}`;
+  await sql`update commerces set mp_access_token_enc = null, mp_refresh_token_enc = null, mp_user_id = null, mp_public_key = null, mp_token_expires_at = null, mp_connected_at = null where id = ${c.id}`;
   revalidatePath("/dashboard");
 }
 
