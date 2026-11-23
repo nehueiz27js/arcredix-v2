@@ -19,6 +19,19 @@ export const statements = [
     mp_access_token_enc text,
     created_at timestamptz not null default now()
   )`,
+  `alter table commerces add column if not exists mp_refresh_token_enc text`,
+  `alter table commerces add column if not exists mp_user_id text`,
+  `alter table commerces add column if not exists mp_public_key text`,
+  `alter table commerces add column if not exists mp_token_expires_at timestamptz`,
+  `alter table commerces add column if not exists mp_connected_at timestamptz`,
+  `create table if not exists mp_oauth_states (
+    state_hash text primary key,
+    commerce_id uuid not null references commerces(id) on delete cascade,
+    code_verifier_enc text not null,
+    expires_at timestamptz not null,
+    created_at timestamptz not null default now()
+  )`,
+  `create index if not exists idx_mp_oauth_states_expires on mp_oauth_states (expires_at)`,
   `create table if not exists accounts (
     id uuid primary key default gen_random_uuid(),
     commerce_id uuid not null references commerces(id) on delete cascade,
