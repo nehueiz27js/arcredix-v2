@@ -57,4 +57,20 @@ export const statements = [
     created_at timestamptz not null default now()
   )`,
   `create index if not exists idx_attempts on login_attempts (scope, ip, created_at)`,
+  `alter table commerces
+    add column if not exists gmail_email text,
+    add column if not exists gmail_refresh_token_enc text,
+    add column if not exists gmail_senders text,
+    add column if not exists gmail_connected_at timestamptz,
+    add column if not exists gmail_last_sync_at timestamptz,
+    add column if not exists gmail_last_error text`,
+  `create table if not exists gmail_messages (
+    commerce_id uuid not null references commerces(id) on delete cascade,
+    message_id text not null,
+    outcome text not null,
+    from_domain text,
+    created_at timestamptz not null default now(),
+    primary key (commerce_id, message_id)
+  )`,
+  `create index if not exists idx_gmail_msgs on gmail_messages (commerce_id, created_at desc)`,
 ];

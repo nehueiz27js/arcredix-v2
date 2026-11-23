@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
+import { syncGmail } from "@/lib/gmail";
 import { getCashierContext } from "@/lib/session";
 
 export async function GET() {
@@ -9,10 +10,20 @@ export async function GET() {
     return NextResponse.json({ error: ctx.commerce.blockReason, blocked: true }, { status: 402 });
   }
 
+  // Mientras la caja está abierta, lee el Gmail del comercio en segundo plano (como máximo cada ~12 s)
+  const commerceId = ctx.commerce.id;
+  after(async () => {
+    try {
+      await syncGmail(commerceId);
+    } catch {
+      /* el error queda registrado en el comercio */
+    }
+  });
+
   // Privilegio mínimo: solo operaciones recientes, sin saldos ni totales
   const rows = await sql`select id, external_id, amount, sender_name, status, received_at, validated_at
     from payments
-    where commerce_id = ${ctx.commerce.id} and received_at > now() - interval '24 hours'
+    where commerce_id = ${commerceId} and received_at > now() - interval '24 hours'
     order by received_at desc limit 40`;
 
   return NextResponse.json(

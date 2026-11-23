@@ -13,6 +13,7 @@ export function parseArgAmount(raw: string): number {
 function stripHtml(html: string) {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<\/(?:p|div|tr|td|th|li|h\d)>|<br\s*\/?>/gi, " ¶ ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
@@ -24,7 +25,12 @@ function stripHtml(html: string) {
  * Cada banco usa su propio formato: probalo con correos reales y ajustá las regex.
  */
 export function parseTransferEmail(input: { subject?: string; text?: string; html?: string }): ParsedTransfer | null {
-  const body = [input.subject ?? "", input.text || (input.html ? stripHtml(input.html) : "")].join(" \n ").replace(/\s+/g, " ");
+  // "¶" separa asunto, líneas y párrafos: un nombre de remitente no puede cruzarlos
+  const raw = input.text || (input.html ? stripHtml(input.html) : "");
+  const body = [input.subject ?? "", raw]
+    .join(" ¶ ")
+    .replace(/\r?\n+/g, " ¶ ")
+    .replace(/[ \t]+/g, " ");
 
   const amountMatch = body.match(/\$\s?(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/);
   if (!amountMatch) return null;

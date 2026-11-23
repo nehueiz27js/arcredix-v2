@@ -4,7 +4,8 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sql } from "@/lib/db";
-import { encrypt } from "@/lib/crypto";
+import { decrypt, encrypt } from "@/lib/crypto";
+import { parseSenders, revokeToken, syncGmail } from "@/lib/gmail";
 import { insertPayment } from "@/lib/ingest";
 import { randomOperationId } from "@/lib/codes";
 import { destroySession, requireOwner } from "@/lib/session";
@@ -117,6 +118,35 @@ export async function changePassword(_p: Result, fd: FormData): Promise<Result> 
   }
   await sql`update commerces set owner_password_hash = ${await bcrypt.hash(next, 12)} where id = ${c.id}`;
   return { ok: "Contraseña actualizada." };
+}
+
+export async function saveGmailSenders(_p: Result, fd: FormData): Promise<Result> {
+  const c = await requireOwner();
+  if (c.blocked) return BLOCKED;
+  const list = parseSenders(String(fd.get("senders") ?? ""));
+  if (list.length === 0) {
+    return { error: "Ingresá al menos un remitente válido, por ejemplo mercadopago.com o avisos@tubanco.com.ar" };
+  }
+  await sql`update commerces set gmail_senders = ${list.join("\n")} where id = ${c.id}`;
+  revalidatePath("/dashboard");
+  return { ok: `Remitentes guardados: ${list.join(", ")}` };
+}
+
+export async function syncGmailNow(): Promise<void> {
+  const c = await requireOwner();
+  if (c.blocked) return;
+  await syncGmail(c.id, true);
+  revalidatePath("/dashboard");
+}
+
+export async function disconnectGmail(): Promise<void> {
+  const c = await requireOwner();
+  const rows = await sql`select gmail_refresh_token_enc from commerces where id = ${c.id}`;
+  const enc = rows[0]?.gmail_refresh_token_enc as string | null | undefined;
+  if (enc) await revokeToken(decrypt(enc)); // le avisa a Google que ya no tiene permiso
+  await sql`update commerces set gmail_email = null, gmail_refresh_token_enc = null,
+    gmail_connected_at = null, gmail_last_sync_at = null, gmail_last_error = null where id = ${c.id}`;
+  revalidatePath("/dashboard");
 }
 
 export async function logoutOwner() {

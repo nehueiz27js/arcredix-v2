@@ -2,26 +2,45 @@ import { Suspense } from "react";
 import { headers } from "next/headers";
 import { sql } from "@/lib/db";
 import { requireOwner } from "@/lib/session";
+import { gmailConfigured } from "@/lib/gmail";
 import { money, dateTime } from "@/lib/format";
 import { ActionForm, inputCls } from "@/components/ActionForm";
 import {
   addAccount, addCashier, changePassword, deleteAccount, deleteCashier, logoutOwner,
   removeMpToken, saveMpToken, setCashierActive, simulatePayment,
+  disconnectGmail, saveGmailSenders, syncGmailNow,
 } from "./actions";
 
 export const metadata = { title: "Mi comercio | ARCREDIX", robots: { index: false, follow: false } };
 
-export default function DashboardPage() {
+export default function DashboardPage({ searchParams }: { searchParams: Promise<{ gmail?: string }> }) {
   return (
     <Suspense fallback={<main className="p-8 text-white/60">Cargando...</main>}>
-      <DashboardContent />
+      <DashboardContent searchParams={searchParams} />
     </Suspense>
   );
 }
 
 const card = "rounded-xl border border-white/10 bg-white/5 p-4";
 
-async function DashboardContent() {
+const OUTCOME: Record<string, string> = {
+  created: "Cobro registrado",
+  duplicate: "Ya estaba registrado",
+  unparsed: "No pude leer monto u operación",
+  ignored_from: "Remitente no coincide con tu lista",
+  ignored_auth: "Descartado: el remitente no pasó la verificación (DMARC)",
+  ignored_spam: "Estaba en spam o papelera",
+};
+const GMAIL_MSG: Record<string, string> = {
+  ok: "Gmail vinculado correctamente.",
+  denied: "Cancelaste la autorización en Google.",
+  error: "No pude completar la vinculación. Probá de nuevo.",
+  norefresh: "Google no entregó el permiso permanente. Quitá el acceso de ARCREDIX en tu cuenta de Google y volvé a vincular.",
+  noconfig: "Faltan las credenciales de Google en el servidor.",
+};
+
+async function DashboardContent({ searchParams }: { searchParams: Promise<{ gmail?: string }> }) {
+  const { gmail: gmailFlash } = await searchParams;
   const c = await requireOwner();
 
   if (c.blocked) {
@@ -51,6 +70,15 @@ async function DashboardContent() {
         and (${c.plan.historyDays}::int is null or received_at > now() - (${c.plan.historyDays}::int * interval '1 day'))
       order by received_at desc limit 100`,
   ]);
+
+  const gm = (
+    await sql`select gmail_email, gmail_senders, gmail_connected_at, gmail_last_sync_at, gmail_last_error
+      from commerces where id = ${c.id}`
+  )[0];
+  const gmailEvents = gm?.gmail_email
+    ? await sql`select outcome, from_domain, created_at from gmail_messages
+        where commerce_id = ${c.id} order by created_at desc limit 8`
+    : [];
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-6">
@@ -121,6 +149,76 @@ async function DashboardContent() {
           <input name="name" required placeholder="Nombre del cajero" className={inputCls} />
           <input name="pin" required inputMode="numeric" maxLength={4} placeholder="PIN (4 dígitos)" className={inputCls + " w-40"} />
         </ActionForm>
+      </section>
+
+      <section className={card}>
+        <h2 className="font-semibold">Gmail: lectura automática de avisos</h2>
+        {gmailFlash && GMAIL_MSG[gmailFlash] && (
+          <p className={`mt-2 rounded-lg p-2 text-sm ${gmailFlash === "ok" ? "bg-[#00D6A0]/15 text-[#00D6A0]" : "bg-red-500/15 text-red-300"}`}>
+            {GMAIL_MSG[gmailFlash]}
+          </p>
+        )}
+        {!gmailConfigured() ? (
+          <p className="mt-2 text-sm text-amber-300">
+            El administrador todavía no configuró las credenciales de Google (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y APP_URL).
+          </p>
+        ) : (
+          <div className="mt-2 space-y-4 text-sm text-white/80">
+            <p>
+              Vinculá el Gmail donde tu banco o billetera te avisa las transferencias. ARCREDIX pide permiso de <strong>solo lectura</strong>,
+              busca únicamente los correos de los remitentes que indiques abajo y guarda solo el monto, quién envió y el número de operación.
+              No guarda el contenido de tus correos y podés desvincularlo cuando quieras.
+            </p>
+
+            <div>
+              <p className="mb-1 font-medium text-white">1) Remitentes de los avisos</p>
+              <ActionForm action={saveGmailSenders} submit="Guardar" resetOnOk={false}>
+                <textarea
+                  name="senders"
+                  rows={2}
+                  defaultValue={String(gm?.gmail_senders ?? "").split("\n").join(", ")}
+                  placeholder="mercadopago.com, avisos@tubanco.com.ar"
+                  className={inputCls + " min-w-72"}
+                />
+              </ActionForm>
+              <p className="mt-1 text-xs text-white/50">
+                Mirá un aviso viejo en tu Gmail: el remitente aparece junto al nombre. Podés poner el dominio completo o la dirección exacta.
+              </p>
+            </div>
+
+            <div>
+              <p className="mb-1 font-medium text-white">2) Vinculación</p>
+              {gm?.gmail_email ? (
+                <div className="space-y-2">
+                  <p>
+                    Vinculado: <span className="font-mono text-[#00D6A0]">{gm.gmail_email as string}</span>
+                    {gm.gmail_last_sync_at ? <> · última lectura {dateTime(gm.gmail_last_sync_at as string)}</> : <> · todavía sin lecturas</>}
+                  </p>
+                  {gm.gmail_last_error && <p className="text-red-300">{gm.gmail_last_error as string}</p>}
+                  {!gm.gmail_senders && <p className="text-amber-300">Falta indicar los remitentes (paso 1) para que empiece a leer.</p>}
+                  <div className="flex gap-3">
+                    <form action={syncGmailNow}><button className="rounded-lg border border-white/20 px-3 py-1.5">Leer ahora</button></form>
+                    <form action={disconnectGmail}><button className="text-red-300 underline">Desvincular Gmail</button></form>
+                  </div>
+                  {gmailEvents.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-xs text-white/70">
+                      {gmailEvents.map((e, i) => (
+                        <li key={i}>
+                          {dateTime(e.created_at as string)} · {(e.from_domain as string) ?? "?"} · {OUTCOME[e.outcome as string] ?? (e.outcome as string)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : (
+                <a href="/api/google/connect" className="inline-block rounded-lg bg-[#00D6A0] px-4 py-2 font-semibold text-[#050B12]">
+                  Vincular Gmail
+                </a>
+              )}
+            </div>
+            <p className="text-xs text-white/50">Solo se leen correos posteriores al momento de la vinculación. Con la caja abierta se revisa cada pocos segundos.</p>
+          </div>
+        )}
       </section>
 
       <section className={card}>
